@@ -120,6 +120,12 @@ static vm_prot_t get_protection(void *sectionStart)
 // 绑定该部分 section的符号
 // 具体的验证学习,可以查看 https://xiaozhuanlan.com/topic/0956137284
 // 真正函数调用的时候是从 动态符号表(间接符号) 中查找符号的 间接符号地址调用的
+// 1. 我们遍历 sectiond 的符号
+// 2. 根据符号找到其对应的间接符号表中的位置
+// 3. 根据间接符号表 -> 定位符号表 中 对应下标的  nlist_64 结构体
+// 4. 根据 nlist_64 对应的 值 找到 字符串表对应位置的符号
+// 5. 比较该符号是否与需要hook的符号一致
+// 6. 一致,则更新 间接符号表的 函数地址
 static void perform_rebinding_with_section(struct rebindings_entry *rebindings,
                                            section_t *section,
                                            intptr_t slide,
