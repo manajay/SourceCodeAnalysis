@@ -123,9 +123,9 @@ static vm_prot_t get_protection(void *sectionStart)
 // 1. 我们遍历 sectiond 的符号
 // 2. 根据符号找到其对应的间接符号表中的位置
 // 3. 根据间接符号表 -> 定位符号表 中 对应下标的  nlist_64 结构体
-// 4. 根据 nlist_64 对应的 值 找到 字符串表对应位置的符号
+// 4. 根据 nlist_64 对应的符号偏移量值 找到 字符串表对应位置的符号真正名称
 // 5. 比较该符号是否与需要hook的符号一致
-// 6. 一致,则更新 间接符号表的 函数地址
+// 6. 一致,则更新 `__la_symbol_ptr` or `__nl_symbol_ptr` 中的 真正函数地址
 static void perform_rebinding_with_section(struct rebindings_entry *rebindings,
                                            section_t *section,
                                            intptr_t slide,
@@ -135,13 +135,15 @@ static void perform_rebinding_with_section(struct rebindings_entry *rebindings,
 {
   // 判断是否是 `__DATA` 常量区
   const bool isDataConst = strcmp(section->segname, "__DATA_CONST") == 0;
-  // indirect_symtab 动态符号表地址
-  // reserved1 保留字段 , 表示  reserved (for offset or index)
-  //  indirect_symbol_indices = 动态符号表 + 偏移量
+  // indirect_symtab 间接符号表地址 ; reserved1 保留字段 , 表示  reserved (for offset or index) 用于描述 `__la_symbol_ptr`或者 `__nl_symbol_ptr` 在 `indirect_symtab`表中的起始地址.
+  //  indirect_symbol_indices = 动态符号表 + 偏移量, 注意 indirect_symbol_indices 仅仅用于寻找  符号表 中的对应符号 n_list 结构体元素的下标 ; uint32_t symtab_index = indirect_symbol_indices[i];
   uint32_t *indirect_symbol_indices = indirect_symtab + section->reserved1;
+
   //  indirect_symbol_bindings 动态符号边的 = slide(基础偏移地址) + Section的内存相对地址 (memory address of this section)
-  //  已知其 value 是一个指针类型，整段区域用二阶指针来获取
+  //  已知其 value 是一个指针类型，整段区域用二阶指针来获取, 这个是 `__la_symbol_ptr` or `__nl_symbol_ptr`, 真正保存符号的调用地址的地方
   void **indirect_symbol_bindings = (void **)((uintptr_t)slide + section->addr);
+
+  // symtab 符号表是为了查找符号对应在 字符串表对应符号的 偏移地址
 
   // 可读
   vm_prot_t oldProtection = VM_PROT_READ;
@@ -152,10 +154,10 @@ static void perform_rebinding_with_section(struct rebindings_entry *rebindings,
     // 让section可读写, 便于我们修改函数地址等数据
     mprotect(indirect_symbol_bindings, section->size, PROT_READ | PROT_WRITE);
   }
-  // 偏移的时候 使用 `size / sizeof(void *)` 为一个单位
+  // 偏移的时候 使用 `size / sizeof(void *)` 为一个单位( 地址单位的大小, 保存的是地址)
   for (uint i = 0; i < section->size / sizeof(void *); i++)
   {
-    // 查看该下标下的间接符号信息
+    // indirect_symbol_indices为间接符号表中 `__la_symbol_ptr` 或者 `__nl_symbol_ptr` 符号数组(元素为uint32_t)的首地址,其长度为Section的地址数组长度, 所以我们可以根据  section 指针数组长度进行 indirect_symbol_indices的遍历
     uint32_t symtab_index = indirect_symbol_indices[i];
 
     /*
@@ -165,7 +167,7 @@ static void perform_rebinding_with_section(struct rebindings_entry *rebindings,
     * removed.  In which case it has the value INDIRECT_SYMBOL_LOCAL.  If the
     * symbol was also absolute INDIRECT_SYMBOL_ABS is or'ed with that.
     */
-    // 如果是 abs 或者 是 本地 则跳过
+    // 如果是 abs 或者 是 本地 则跳过 (因为不是动态库的外部符号)
     if (symtab_index == INDIRECT_SYMBOL_ABS || symtab_index == INDIRECT_SYMBOL_LOCAL ||
         symtab_index == (INDIRECT_SYMBOL_LOCAL | INDIRECT_SYMBOL_ABS))
     {
@@ -175,7 +177,7 @@ static void perform_rebinding_with_section(struct rebindings_entry *rebindings,
     uint32_t strtab_offset = symtab[symtab_index].n_un.n_strx;
     // 获取符号名称
     char *symbol_name = strtab + strtab_offset;
-    // 符号长度 ??? 做什么用, 是因为符号很多是以 `_` 开头吗
+    // C 语言的默认调用惯例 Calling Convention  (cdecl) 中 名字修饰策略, 直接在函数名称前加1个下划线!!!  所以下面对比符号的时候 会从 symbol_name[1] 开始, 去掉了 symbol_name[0] 的 '_'
     bool symbol_name_longer_than_1 = symbol_name[0] && symbol_name[1];
     // 遍历所有的hook符号链表
     struct rebindings_entry *cur = rebindings;
@@ -187,13 +189,13 @@ static void perform_rebinding_with_section(struct rebindings_entry *rebindings,
         if (symbol_name_longer_than_1 &&
             strcmp(&symbol_name[1], cur->rebindings[j].name) == 0)
         {
-          // 如果被hook函数存在且动态符号表中的函数地址不等于 新的hook函数, 则将hook函数链表中的原函数地址记录下来 (动态函数表的函数地址)
+          // 如果被hook函数的新函数地址 不同于 <<在 数据区 `__nl_symbol_ptr`或者`__la_symbol_ptr`>> 同名符号结构中的函数地址 , 则将hook函数链表中的原函数地址记录下来 (动态函数表的函数地址), 记录到链表中,供以后使用
           if (cur->rebindings[j].replaced != NULL &&
               indirect_symbol_bindings[i] != cur->rebindings[j].replacement)
           {
             *(cur->rebindings[j].replaced) = indirect_symbol_bindings[i];
           }
-          // 并且将hook函数地址 更新到 动态函数表中
+          // 并且将hook函数的新函数地址 更新到 `__nl_symbol_ptr`或者`__la_symbol_ptr` 中
           indirect_symbol_bindings[i] = cur->rebindings[j].replacement;
           goto symbol_loop; // 结束该内层的遍历, 查找下一个符号
         }
