@@ -39,7 +39,7 @@ __fishhook__ is a very simple library that enables dynamically rebinding symbols
 
 `fishhook` 文档中的查找过程
 
-![](media/15752787257779/15752810800353.jpg)
+![](media/15752810800353.jpg)
 
 步骤一: 
 1. 查找 记录 `__LINKEDIT` / `LC_SYMTAB` / `LC_DYSYMTAB` 相关的3 个 `Command` 
@@ -74,7 +74,7 @@ Mac中的可执行文件分类如下:
 
 真正要了解的是 `Mach-O` 格式, 可以使用 `MachOView` 软件
 
-![](media/15752787257779/15752835954304.jpg)
+![](media/15752835954304.jpg)
 如下组成: 
 - Mach Header
 - Load Commands
@@ -92,7 +92,7 @@ Mac中的可执行文件分类如下:
 
 也可以用 `Hopper` 查看更详细的信息
 
-![](media/15752787257779/15752849843439.jpg)
+![](media/15752849843439.jpg)
 
 
 ## 相关表
@@ -116,7 +116,7 @@ static void perform_rebinding_with_section(struct rebindings_entry *rebindings,
 
 ### section
 
-![](media/15752787257779/15758939084290.jpg)
+![](media/15758939084290.jpg)
 
 ```
 struct section_64 { /* for 64-bit architectures */
@@ -143,9 +143,9 @@ struct section_64 { /* for 64-bit architectures */
 ### __la_symbol_ptr 
 
 
-![](media/15752787257779/15759010849520.jpg)
+![](media/15759010849520.jpg)
 
-![](media/15752787257779/15759011537689.jpg)
+![](media/15759011537689.jpg)
 
 
 - 位于 `DATA` 区
@@ -186,7 +186,7 @@ Dynamic Symbol Table 动态符号(间接符号表)表:
 
 ### 字符串表 .strtab / string table
 
-![](media/15752787257779/15759020207201.jpg)
+![](media/15759020207201.jpg)
 
 摘自[字符串表节](https://docs.oracle.com/cd/E26926_01/html/E25910/chapter6-73709.html)
 
